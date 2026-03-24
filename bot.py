@@ -21,6 +21,13 @@ LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
 LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
 OWNER_ID = os.getenv("OWNER_ID") # Admin to notify on failures
 
+# Lavalink restarts (Docker/Coolify, plugin downloads) often exceed a few short sleeps.
+# Wavelink also retries the node websocket internally; this loop covers cold starts without
+# giving up as fast as the old 2-attempt policy. Re-check Pool reconnect behavior on wavelink upgrades.
+LAVLINK_RECONNECT_MAX_ATTEMPTS = 8
+LAVLINK_RECONNECT_BASE_DELAY_S = 4.0
+LAVLINK_RECONNECT_MAX_DELAY_S = 45.0
+
 class LavalinkBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -52,7 +59,11 @@ class LavalinkBot(commands.Bot):
 
     async def on_wavelink_node_closed(self, payload):
         logger.warning(f"Lavalink Node disconnected: {payload.node.identifier}. Attempting reconnect...")
-        for attempt, delay in enumerate([5, 15], start=1):
+        for attempt in range(1, LAVLINK_RECONNECT_MAX_ATTEMPTS + 1):
+            delay = min(
+                LAVLINK_RECONNECT_BASE_DELAY_S * (2 ** (attempt - 1)),
+                LAVLINK_RECONNECT_MAX_DELAY_S,
+            )
             await asyncio.sleep(delay)
             try:
                 await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
@@ -65,12 +76,15 @@ class LavalinkBot(commands.Bot):
                     except Exception: pass
                 return
             except Exception as e:
-                if attempt == 2 and OWNER_ID: # Final attempt failed
+                logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
+                if attempt == LAVLINK_RECONNECT_MAX_ATTEMPTS and OWNER_ID:
                     try:
                         owner = await self.fetch_user(int(OWNER_ID))
-                        await owner.send(f"⚠️ **Lavalink Critical Failure**: Could not reconnect after 2 attempts.")
+                        await owner.send(
+                            f"⚠️ **Lavalink Critical Failure**: Could not reconnect after "
+                            f"{LAVLINK_RECONNECT_MAX_ATTEMPTS} attempts."
+                        )
                     except Exception: pass
-                logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
         logger.error("All Lavalink reconnect attempts failed. Manual restart may be needed.")
 
 bot = LavalinkBot()
