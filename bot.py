@@ -1,0 +1,348 @@
+import asyncio
+import os
+import discord
+from discord.ext import commands
+import wavelink
+from dotenv import load_dotenv
+
+import logging
+from utils.ai_brain import ai_brain
+from ui.views import ui_manager
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('LavalinkBot')
+
+# Load environment variables
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "hope_lost")
+LAVALINK_HOST = os.getenv("LAVALINK_HOST", "127.0.0.1")
+LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
+
+class LavalinkBot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        
+        super().__init__(
+            command_prefix='-', 
+            intents=intents,
+            help_command=commands.DefaultHelpCommand()
+        )
+
+    async def setup_hook(self):
+        logger.info("Setting up Wavelink Node...")
+        nodes = [wavelink.Node(
+            uri=f"http://{LAVALINK_HOST}:{LAVALINK_PORT}",
+            password=LAVALINK_PASSWORD
+        )]
+        
+        # Connect to Lavalink Server
+        await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
+
+    async def on_ready(self):
+        logger.info(f"Bot connected as {self.user} (ID: {self.user.id})")
+
+    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
+        logger.info(f"Lavalink Node connected successfully! Node ID: {payload.node.identifier}")
+
+bot = LavalinkBot()
+
+# --- Music Commands ---
+
+@bot.command(aliases=['p'])
+async def play(ctx: commands.Context, *, search: str):
+    """Play a song from YouTube, Spotify, or Soundcloud via Lavalink."""
+    if not ctx.author.voice:
+        await ctx.send("❌ Arre bhai, pehle voice channel toh join karo!")
+        return
+    
+    if not ctx.voice_client:
+        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    tracks: wavelink.Search = await wavelink.Playable.search(search)
+    
+    if not tracks:
+        await ctx.send(f"❌ Kuch nahi mila yaar `{search}` ke liye. Spelling check karo!")
+        return
+        
+    if isinstance(tracks, wavelink.Playlist):
+        track = tracks[0]
+        await vc.queue.put_wait(tracks)
+        
+        reply = await ai_brain.get_response("play", {"user": ctx.author.display_name, "song": tracks.name})
+        await ctx.send(f"🎵 {reply} (Added playlist **{tracks.name}** with {len(tracks)} tracks)")
+    else:
+        track = tracks[0]
+        vc.queue.put(track)
+        
+        reply = await ai_brain.get_response("play", {"user": ctx.author.display_name, "song": track.title})
+        await ctx.send(f"🎵 {reply}")
+        
+    if not vc.playing:
+        await vc.play(vc.queue.get())
+    
+    await ui_manager.update_all_ui(ctx)
+
+@bot.command(aliases=["s", "next"])
+async def skip(ctx: commands.Context):
+    """Skip the current song."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Bhai main voice channel mein nahi hoon, kis chiz ko skip karu?")
+        
+    vc: wavelink.Player = ctx.voice_client
+    
+    current_track = vc.current
+    title = current_track.title if current_track else "song"
+    
+    await vc.skip(force=True)
+    
+    reply = await ai_brain.get_response("skip", {"user": ctx.author.display_name, "song": title})
+    await ctx.send(f"⏭️ **Skip kar diya!** {reply}")
+
+@bot.command()
+async def pause(ctx: commands.Context):
+    """Pause the current song."""
+    vc: wavelink.Player = ctx.voice_client
+    if vc and not vc.paused:
+        await vc.pause(True)
+        reply = await ai_brain.get_response("pause", {"user": ctx.author.display_name})
+        await ctx.send(f"⏸️ {reply}")
+        await ui_manager.update_all_ui(ctx)
+
+@bot.command(aliases=['start'])
+async def resume(ctx: commands.Context):
+    """Resume the current song."""
+    vc: wavelink.Player = ctx.voice_client
+    if vc and vc.paused:
+        await vc.pause(False)
+        reply = await ai_brain.get_response("resume", {"user": ctx.author.display_name})
+        await ctx.send(f"▶️ {reply}")
+        await ui_manager.update_all_ui(ctx)
+
+@bot.command()
+async def stop(ctx: commands.Context):
+    """Stop the music and leave voice."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Arre, main toh kisi voice channel mein hi nahi hoon! Kise roku?")
+        
+    vc: wavelink.Player = ctx.voice_client
+    vc.queue.clear()
+    await vc.disconnect()
+    await ui_manager.cleanup_all_messages(ctx.guild.id)
+    
+    reply = await ai_brain.get_response("stop", {"user": ctx.author.display_name})
+    await ctx.send(f"⏹️ **Bas, khatam!** {reply}\nQueue aur music sab clear.")
+
+@bot.command(aliases=['bye', 'exit', 'quit', 'dc', 'disconnect', 'out'])
+async def leave(ctx: commands.Context):
+    """Leave the voice channel"""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Main pehle se hi bahar hoon bhai!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    vc.queue.clear()
+    await vc.disconnect()
+    await ui_manager.cleanup_all_messages(ctx.guild.id)
+    
+    reply = await ai_brain.get_response("leave", {"user": ctx.author.display_name})
+    await ctx.send(f"👋 **Chalo, main chalti hoon!** {reply}")
+
+@bot.command(aliases=['ap', 'auto'])
+async def autoplay(ctx: commands.Context, toggle: str = None):
+    """Toggle AutoPlay / YouTube Recommendations mode"""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Voice channel mein aao pehle!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    
+    if getattr(vc, 'autoplay', wavelink.AutoPlayMode.disabled) == wavelink.AutoPlayMode.enabled:
+        vc.autoplay = wavelink.AutoPlayMode.disabled
+        reply = await ai_brain.get_response("loop_off", {"user": ctx.author.display_name})
+        await ctx.send(f"⏸️ {reply}")
+    else:
+        vc.autoplay = wavelink.AutoPlayMode.enabled
+        reply = await ai_brain.get_response("autoplay_start", {"user": ctx.author.display_name, "count": len(vc.queue)})
+        await ctx.send(f"🎵 {reply}")
+        
+    await ui_manager.update_all_ui(ctx)
+
+# --- Legacy Parity Commands ---
+
+@bot.command(aliases=['q'])
+async def queue(ctx: commands.Context):
+    """View the current queue."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Kuch baj hi nahi raha hai, kya queue dekhoge?")
+    
+    reply = await ai_brain.get_response("queue", {"user": ctx.author.display_name})
+    await ctx.send(f"🎵 {reply}")
+    await ui_manager.update_all_ui(ctx)
+
+@bot.command(aliases=['repeat'])
+async def loop(ctx: commands.Context):
+    """Toggle looping the current song or entire queue."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Kisko loop karoon? Kuch nai baj raha.")
+        
+    vc: wavelink.Player = ctx.voice_client
+    
+    if vc.queue.mode == wavelink.QueueMode.normal:
+        vc.queue.mode = wavelink.QueueMode.loop
+        reply = await ai_brain.get_response("loop_song", {"user": ctx.author.display_name, "song": vc.current.title if vc.current else "Gaana"})
+        await ctx.send(f"🔂 {reply}")
+    elif vc.queue.mode == wavelink.QueueMode.loop:
+        vc.queue.mode = wavelink.QueueMode.loop_all
+        reply = await ai_brain.get_response("loop_queue", {"user": ctx.author.display_name})
+        await ctx.send(f"🔁 {reply}")
+    else:
+        vc.queue.mode = wavelink.QueueMode.normal
+        reply = await ai_brain.get_response("loop_off", {"user": ctx.author.display_name})
+        await ctx.send(f"➡️ {reply}")
+        
+    await ui_manager.update_all_ui(ctx)
+
+@bot.command()
+async def shuffle(ctx: commands.Context):
+    """Shuffle the current queue."""
+    if not ctx.voice_client or not ctx.voice_client.queue:
+        return await ctx.send("❌ Shuffle karne ke liye gaane honey chahiye na?")
+        
+    vc: wavelink.Player = ctx.voice_client
+    vc.queue.shuffle()
+    reply = await ai_brain.get_response("shuffle", {"user": ctx.author.display_name})
+    await ctx.send(f"🔀 {reply}")
+    await ui_manager.update_all_ui(ctx)
+
+@bot.command(aliases=['rm', 'delete'])
+async def remove(ctx: commands.Context, index: int):
+    """Remove a song from the queue by position."""
+    if not ctx.voice_client or not ctx.voice_client.queue:
+        return await ctx.send("❌ Queue khaali hai bhai!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    if 1 <= index <= len(vc.queue):
+        track = vc.queue[index - 1]
+        del vc.queue[index - 1]
+        reply = await ai_brain.get_response("remove", {"user": ctx.author.display_name, "song": track.title})
+        await ctx.send(f"🗑️ {reply}")
+        await ui_manager.update_all_ui(ctx)
+    else:
+        await ctx.send(f"❌ Invalid index! 1 se {len(vc.queue)} ke beech enter karo.")
+
+@bot.command()
+async def move(ctx: commands.Context, old_index: int, new_index: int):
+    """Move a song from one position to another in the queue."""
+    if not ctx.voice_client or not ctx.voice_client.queue:
+        return await ctx.send("❌ Queue toh ghanta hai, kya move karu?")
+        
+    vc: wavelink.Player = ctx.voice_client
+    queue_len = len(vc.queue)
+    
+    if 1 <= old_index <= queue_len and 1 <= new_index <= queue_len:
+        track = vc.queue[old_index - 1]
+        del vc.queue[old_index - 1]
+        vc.queue.put_at(new_index - 1, track)
+        reply = await ai_brain.get_response("move", {"user": ctx.author.display_name, "song": track.title})
+        await ctx.send(f"🚚 {reply}")
+        await ui_manager.update_all_ui(ctx)
+    else:
+        await ctx.send(f"❌ Invalid index bhai! Check the queue first.")
+
+@bot.command(aliases=['cleanqueue', 'clearqueue', 'clear'])
+async def clean(ctx: commands.Context):
+    """Clear all songs from the queue."""
+    if not ctx.voice_client or not ctx.voice_client.queue:
+        return await ctx.send("❌ Queue already saaf hai!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    vc.queue.clear()
+    reply = await ai_brain.get_response("clear", {"user": ctx.author.display_name})
+    await ctx.send(f"🧹 {reply}")
+    await ui_manager.update_all_ui(ctx)
+
+@bot.command(aliases=['skipto'])
+async def jump(ctx: commands.Context, index: int):
+    """Jump ahead directly to a specific song in the queue."""
+    if not ctx.voice_client or not ctx.voice_client.queue:
+        return await ctx.send("❌ Queue khaali hai bhai!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    
+    if 1 <= index <= len(vc.queue):
+        # We need to drop all songs before the target index
+        for _ in range(index - 1):
+            del vc.queue[0]
+            
+        await vc.skip(force=True)
+        reply = await ai_brain.get_response("jump", {"user": ctx.author.display_name})
+        await ctx.send(f"🚀 {reply}")
+    else:
+        await ctx.send(f"❌ Invalid index! 1 se {len(vc.queue)} ke beech enter karo.")
+
+@bot.command(aliases=['v', 'vol'])
+async def volume(ctx: commands.Context, vol: int = None):
+    """Change or check the player volume."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Pehle music chala toh lein!")
+        
+    vc: wavelink.Player = ctx.voice_client
+    if vol is None:
+        return await ctx.send(f"🔊 Abhi ki volume hai: **{vc.volume}%**")
+        
+    if 0 <= vol <= 1000:
+        await vc.set_volume(vol)
+        reply = await ai_brain.get_response("volume", {"user": ctx.author.display_name})
+        await ctx.send(f"🔊 {reply}")
+    else:
+        await ctx.send("❌ Volume 0 se 1000 ke beech mein hona chahiye aukaat ke hisaab se.")
+
+# --- Event Listeners for Player ---
+@bot.listen('on_wavelink_track_end')
+async def on_track_end(payload: wavelink.TrackEndEventPayload):
+    vc: wavelink.Player = payload.player
+    
+    if not vc or not vc.connected:
+        return
+        
+    if vc.queue.is_empty and getattr(vc, 'autoplay', wavelink.AutoPlayMode.disabled) == wavelink.AutoPlayMode.disabled:
+        reply = await ai_brain.get_response("queue_end", {})
+        
+        await asyncio.sleep(60)
+        if vc.queue.is_empty and vc.connected:
+            await ui_manager.cleanup_all_messages(vc.guild.id)
+            await vc.disconnect()
+
+@bot.listen('on_wavelink_track_start')
+async def on_track_start(payload: wavelink.TrackStartEventPayload):
+    # This runs every time a track starts playing natively by Lavalink
+    vc: wavelink.Player = payload.player
+    
+    if not vc or not vc.guild:
+        return
+        
+    try:
+        # Check if we have an active UI
+        if vc.guild.id in ui_manager.ui_messages:
+            msg = ui_manager.ui_messages[vc.guild.id].get('now_playing') or ui_manager.ui_messages[vc.guild.id].get('queue')
+            if msg:
+                # Provide a FakeCtx so ui_manager can recreate the paired messages in the same channel
+                class FakeCtx:
+                    guild = vc.guild
+                    voice_client = vc
+                    author = msg.author # Ensure there is some basic compatibility
+                    async def send(self, *args, **kwargs):
+                        return await msg.channel.send(*args, **kwargs)
+                        
+                await ui_manager.update_all_ui(FakeCtx())
+    except Exception as e:
+        logger.error(f"Error handling track start UI update: {e}")
+
+if __name__ == "__main__":
+    if not TOKEN:
+        logger.error("Please add your Discord Token to the .env file.")
+    else:
+        bot.run(TOKEN)
