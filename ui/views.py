@@ -7,6 +7,7 @@ from discord import ui, Embed
 from typing import Dict, Optional, Any
 import wavelink
 import logging
+from wavelink.exceptions import LavalinkException
 
 from utils.ai_brain import ai_brain
 
@@ -19,12 +20,19 @@ class NowPlayingView(ui.View):
         super().__init__(timeout=timeout)
         self.ctx = ctx
         self.update_buttons()
+
+    def _get_active_player(self, interaction: Optional[discord.Interaction] = None) -> Optional[wavelink.Player]:
+        """Prefer current guild voice client over stale ctx references."""
+        guild = interaction.guild if interaction and interaction.guild else getattr(self.ctx, "guild", None)
+        if guild and guild.voice_client:
+            return guild.voice_client  # type: ignore[return-value]
+        return self.ctx.voice_client
     
     def update_buttons(self):
         """Update button states based on current wavelink player state"""
         self.clear_items()
         
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player()
         if not vc:
             return
             
@@ -90,7 +98,7 @@ class NowPlayingView(ui.View):
         self.add_item(autoplay_button)
     
     async def prev_song(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if not vc or not len(vc.queue.history):
             await interaction.response.send_message("❌ Peeche kuch hai hi nahi bhai, kahan jaaun?", ephemeral=True)
             return
@@ -113,29 +121,37 @@ class NowPlayingView(ui.View):
                 logger.error(f"Error editing response: {e}")
         
     async def play_pause(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if not vc:
             await interaction.response.send_message("❌ Main voice channel mein nahi hoon!", ephemeral=True)
             return
             
         await interaction.response.defer(ephemeral=True)
-        if vc.playing and not vc.paused:
-            await vc.pause(True)
-            reply = await ai_brain.get_response("pause", {"user": interaction.user.display_name})
-            await interaction.followup.send(f"⏸️ {reply}", ephemeral=True)
-        elif vc.paused:
-            await vc.pause(False)
-            reply = await ai_brain.get_response("resume", {"user": interaction.user.display_name})
-            await interaction.followup.send(f"▶️ {reply}", ephemeral=True)
-        else:
-            await interaction.followup.send("❌ Kuch baj hi nahi raha, kya pause karu?", ephemeral=True)
+        try:
+            if vc.playing and not vc.paused:
+                await vc.pause(True)
+                reply = await ai_brain.get_response("pause", {"user": interaction.user.display_name})
+                await interaction.followup.send(f"⏸️ {reply}", ephemeral=True)
+            elif vc.paused:
+                await vc.pause(False)
+                reply = await ai_brain.get_response("resume", {"user": interaction.user.display_name})
+                await interaction.followup.send(f"▶️ {reply}", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Kuch baj hi nahi raha, kya pause karu?", ephemeral=True)
+                return
+        except LavalinkException as e:
+            logger.warning("Pause/resume failed due to Lavalink session/player mismatch: %s", e)
+            await interaction.followup.send(
+                "⚠️ Control desynced after reconnect. Try `-play` again to refresh the player session.",
+                ephemeral=True,
+            )
             return
             
         self.update_buttons()
         await ui_manager.update_now_playing_buttons(self.ctx, self)
     
     async def skip_track(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if not vc:
             return await interaction.response.send_message("❌ Aage kuch nahi hai bhai! End of the road.", ephemeral=True)
             
@@ -147,7 +163,7 @@ class NowPlayingView(ui.View):
         # No need to edit_original_response here entirely manually since track end event will re-send UI.
         
     async def stop_track(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if vc:
             await interaction.response.defer(ephemeral=True)
             vc.queue.clear()
@@ -159,7 +175,7 @@ class NowPlayingView(ui.View):
             await interaction.response.send_message("Kuch chal hi nahi raha hai.", ephemeral=True)
             
     async def toggle_repeat(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if not vc: return
         
         await interaction.response.defer(ephemeral=True)
@@ -176,7 +192,7 @@ class NowPlayingView(ui.View):
         await ui_manager.update_now_playing_buttons(self.ctx, self)
         
     async def toggle_autoplay(self, interaction: discord.Interaction):
-        vc: wavelink.Player = self.ctx.voice_client
+        vc: wavelink.Player = self._get_active_player(interaction)
         if not vc: return
         
         await interaction.response.defer(ephemeral=True)
