@@ -6,7 +6,7 @@ must_haves:
   truths:
     - "Bot DMs the owner if the Lavalink node disconnects"
     - "Bot includes a -status command showing versions of Bot, Lavalink, and Plugins"
-    - "All versions in docker-compose.yaml are pinned (4.0.8, 1.18.2)"
+    - "All versions in docker-compose.yaml are pinned (4.0.8, youtube-plugin 1.18.0 per maven.lavalink.dev)"
   artifacts:
     - path: "bot.py"
       provides: "Event handler and status command"
