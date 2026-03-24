@@ -336,7 +336,7 @@ async def volume(ctx: commands.Context, vol: int = None):
 
 # --- Event Listeners for Player ---
 @bot.listen('on_wavelink_inactive_player')
-async def on_inactive_player(payload: wavelink.InactivePlayerEventPayload):
+async def on_inactive_player(payload):
     """Fires when the player has been inactive (no tracks) for inactive_timeout seconds."""
     vc: wavelink.Player = payload.player
     if vc and vc.connected:
