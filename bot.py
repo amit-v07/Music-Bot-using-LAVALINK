@@ -129,6 +129,12 @@ async def play(ctx: commands.Context, *, search: str):
     else:
         vc: wavelink.Player = ctx.voice_client
 
+    if not discord.opus.is_loaded():
+        logger.error(
+            "discord.opus not loaded — bot Docker image must include libopus0; "
+            "voice channel may connect but audio will not encode."
+        )
+
     tracks: wavelink.Search = await wavelink.Playable.search(search)
     
     if not tracks:
