@@ -19,9 +19,9 @@ If you change the YouTube plugin version, update **both** `docker-compose.yaml` 
 - Keep **Discord token**, **Google API keys**, and production Lavalink passwords in **Coolify secrets** or an untracked `.env`, not in git.
 - Use `.env.example` as a template only.
 
-## Docker Compose healthcheck
+## Docker Compose startup order
 
-The `lavalink` service uses `GET /version` (unauthenticated in Lavalink v4) for `HEALTHCHECK`. The **bot** waits for `service_healthy` before starting, so first boot can take up to ~2 minutes while the YouTube plugin JAR downloads. The official **Ubuntu** Lavalink image includes `curl`; **Alpine/distroless** variants may need a different `healthcheck` command.
+The **bot** uses `depends_on: lavalink` (start order only, not `service_healthy`). We **do not** ship a Lavalink `HEALTHCHECK` in this file: Coolify and some image variants lack `curl`/`wget`, and the YouTube plugin JAR download on first boot can exceed typical `start_period` windows—those cases were marking Lavalink **unhealthy** and blocking the bot from starting. Wavelink reconnects until the node is up. You can add a non-blocking health probe in Coolify if your image supports it.
 
 ## Coolify: environment overrides the repo
 
