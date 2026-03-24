@@ -86,7 +86,8 @@ async def play(ctx: commands.Context, *, search: str):
         return
     
     if not ctx.voice_client:
-        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player, inactive_timeout=60)
+        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+        vc.inactive_timeout = 60
     else:
         vc: wavelink.Player = ctx.voice_client
 
