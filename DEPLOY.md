@@ -38,3 +38,15 @@ then the server is still pinned to a **non-existent** JAR (1.18.2 is not publish
 ## Operational check
 
 After deploy, Lavalink logs should show a successful plugin load and no `FileNotFoundException` on plugin JAR URLs. The bot logs should show the Wavelink node ready event.
+
+## Bot container: Discord TLS / gateway errors
+
+If bot logs show `ClientConnectorSSLError` or `SSL: TLSV1_UNRECOGNIZED_NAME` to `gateway-*.discord.gg:443`:
+
+1. **Redeploy** after pulling the updated `Dockerfile` (explicit `ca-certificates`, `SSL_CERT_FILE`, etc.).
+2. On the Coolify host, ensure nothing is **MITM / SSL-bumping** Discord (transparent proxies break SNI).
+3. Do **not** point the bot at an `https_proxy` that intercepts Discord unless you trust its CA **inside** the image.
+4. If errors persist only on this server, try from the host: `openssl s_client -connect gateway.discord.gg:443 -servername gateway.discord.gg -brief` — the handshake must succeed with a valid Discord cert chain.
+
+Flaky gateway TLS often causes **voice join timeouts** afterward (`ChannelTimeoutException`): fix TLS/network first, then retest `-play`.
+
