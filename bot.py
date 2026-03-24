@@ -1,11 +1,10 @@
 import asyncio
-import os
 import discord
 from discord.ext import commands
 import wavelink
-from dotenv import load_dotenv
 
 import logging
+from config import config
 from utils.ai_brain import ai_brain
 from ui.views import ui_manager
 
@@ -13,20 +12,11 @@ from ui.views import ui_manager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('LavalinkBot')
 
-# Load environment variables
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "hope_lost")
-LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
-LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
-OWNER_ID = os.getenv("OWNER_ID") # Admin to notify on failures
-
-# Lavalink restarts (Docker/Coolify, plugin downloads) often exceed a few short sleeps.
-# Wavelink also retries the node websocket internally; this loop covers cold starts without
-# giving up as fast as the old 2-attempt policy. Re-check Pool reconnect behavior on wavelink upgrades.
-LAVLINK_RECONNECT_MAX_ATTEMPTS = 8
-LAVLINK_RECONNECT_BASE_DELAY_S = 4.0
-LAVLINK_RECONNECT_MAX_DELAY_S = 45.0
+TOKEN = config.discord_token
+LAVALINK_PASSWORD = config.lavalink_password
+LAVALINK_HOST = config.lavalink_host
+LAVALINK_PORT = config.lavalink_port
+OWNER_ID = config.owner_id
 
 class LavalinkBot(commands.Bot):
     def __init__(self):
@@ -44,8 +34,8 @@ class LavalinkBot(commands.Bot):
     async def setup_hook(self):
         logger.info("Setting up Wavelink Node...")
         self._nodes = [wavelink.Node(
-            uri=f"http://{LAVALINK_HOST}:{LAVALINK_PORT}",
-            password=LAVALINK_PASSWORD
+            uri=f"http://{config.lavalink_host}:{config.lavalink_port}",
+            password=config.lavalink_password,
         )]
         
         # Connect to Lavalink Server
@@ -58,11 +48,12 @@ class LavalinkBot(commands.Bot):
         logger.info(f"Lavalink Node connected successfully! Node ID: {payload.node.identifier}")
 
     async def on_wavelink_node_closed(self, payload):
+        """Supplement Wavelink's own websocket retries for long Lavalink cold starts (Docker/Coolify)."""
         logger.warning(f"Lavalink Node disconnected: {payload.node.identifier}. Attempting reconnect...")
-        for attempt in range(1, LAVLINK_RECONNECT_MAX_ATTEMPTS + 1):
+        for attempt in range(1, config.lavalink_reconnect_max_attempts + 1):
             delay = min(
-                LAVLINK_RECONNECT_BASE_DELAY_S * (2 ** (attempt - 1)),
-                LAVLINK_RECONNECT_MAX_DELAY_S,
+                config.lavalink_reconnect_base_delay_s * (2 ** (attempt - 1)),
+                config.lavalink_reconnect_max_delay_s,
             )
             await asyncio.sleep(delay)
             try:
@@ -77,12 +68,12 @@ class LavalinkBot(commands.Bot):
                 return
             except Exception as e:
                 logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
-                if attempt == LAVLINK_RECONNECT_MAX_ATTEMPTS and OWNER_ID:
+                if attempt == config.lavalink_reconnect_max_attempts and OWNER_ID:
                     try:
                         owner = await self.fetch_user(int(OWNER_ID))
                         await owner.send(
                             f"⚠️ **Lavalink Critical Failure**: Could not reconnect after "
-                            f"{LAVLINK_RECONNECT_MAX_ATTEMPTS} attempts."
+                            f"{config.lavalink_reconnect_max_attempts} attempts."
                         )
                     except Exception: pass
         logger.error("All Lavalink reconnect attempts failed. Manual restart may be needed.")
@@ -430,8 +421,8 @@ async def status(ctx):
         embed.add_field(name="Players", value=str(len(node.players)), inline=True)
         
     # Version Pinning info (Static from our config)
-    embed.add_field(name="Pinned Lavalink", value="4.0.8", inline=True)
-    embed.add_field(name="Pinned YT Plugin", value="1.18.2", inline=True)
+    embed.add_field(name="Pinned Lavalink", value=config.pinned_lavalink_version, inline=True)
+    embed.add_field(name="Pinned YT Plugin", value=config.pinned_youtube_plugin, inline=True)
     
     embed.set_footer(text=f"Admin Alerts: {'Enabled' if OWNER_ID else 'Disabled'}")
     await ctx.send(embed=embed)
