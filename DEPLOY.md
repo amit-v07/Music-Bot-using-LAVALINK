@@ -50,3 +50,9 @@ If bot logs show `ClientConnectorSSLError` or `SSL: TLSV1_UNRECOGNIZED_NAME` to 
 
 Flaky gateway TLS often causes **voice join timeouts** afterward (`ChannelTimeoutException`): fix TLS/network first, then retest `-play`.
 
+## Bot joins voice but you hear no audio
+
+On Linux (including Docker), **discord.py needs a system Opus library** to encode audio. The bot image installs **`libopus0`** for this. If you built the image without it or use a custom base image, reinstall or add `libopus0`; otherwise the bot can **connect** to the voice channel with **silent playback**.
+
+Rebuild/redeploy the bot after Dockerfile changes so the layer is applied.
+
