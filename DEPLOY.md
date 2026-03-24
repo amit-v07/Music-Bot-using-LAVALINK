@@ -19,6 +19,10 @@ If you change the YouTube plugin version, update **both** `docker-compose.yaml` 
 - Keep **Discord token**, **Google API keys**, and production Lavalink passwords in **Coolify secrets** or an untracked `.env`, not in git.
 - Use `.env.example` as a template only.
 
+## Docker Compose healthcheck
+
+The `lavalink` service uses `GET /version` (unauthenticated in Lavalink v4) for `HEALTHCHECK`. The **bot** waits for `service_healthy` before starting, so first boot can take up to ~2 minutes while the YouTube plugin JAR downloads. The official **Ubuntu** Lavalink image includes `curl`; **Alpine/distroless** variants may need a different `healthcheck` command.
+
 ## Operational check
 
 After deploy, Lavalink logs should show a successful plugin load and no `FileNotFoundException` on plugin JAR URLs. The bot logs should show the Wavelink node ready event.
