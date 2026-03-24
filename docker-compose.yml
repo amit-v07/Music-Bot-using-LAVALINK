@@ -9,6 +9,12 @@ services:
       - ./application.yml:/opt/Lavalink/application.yml
     environment:
       - _JAVA_OPTIONS=-Xmx512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:2333/version -H 'Authorization: hope_lost' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - lavalink_network
 
@@ -19,7 +25,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - lavalink
+      lavalink:
+        condition: service_healthy
     networks:
       - lavalink_network
 
