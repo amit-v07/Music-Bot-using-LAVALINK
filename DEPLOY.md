@@ -56,3 +56,11 @@ On Linux (including Docker), **discord.py needs a system Opus library** to encod
 
 Rebuild/redeploy the bot after Dockerfile changes so the layer is applied.
 
+Confirm inside the running bot container:
+
+```bash
+ls -l /usr/lib/*-linux-gnu/libopus.so.0
+```
+
+If that file is missing, Coolify is **not using** the repo `Dockerfile` build (wrong deploy type / stale cache). Force **rebuild without cache** or fix the build context.
+
