@@ -17,7 +17,7 @@ logger = logging.getLogger('LavalinkBot')
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "hope_lost")
-LAVALINK_HOST = os.getenv("LAVALINK_HOST", "127.0.0.1")
+LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
 LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
 
 class LavalinkBot(commands.Bot):
@@ -359,10 +359,9 @@ async def on_track_end(payload: wavelink.TrackEndEventPayload):
 
 @bot.listen('on_wavelink_track_start')
 async def on_track_start(payload: wavelink.TrackStartEventPayload):
-    # This runs every time a track starts playing natively by Lavalink
     vc: wavelink.Player = payload.player
     
-    if not vc or not vc.guild:
+    if not vc or not vc.guild or not vc.current:
         return
         
     try:
@@ -374,7 +373,6 @@ async def on_track_start(payload: wavelink.TrackStartEventPayload):
                 class FakeCtx:
                     guild = vc.guild
                     voice_client = vc
-                    author = msg.author # Ensure there is some basic compatibility
                     async def send(self, *args, **kwargs):
                         return await msg.channel.send(*args, **kwargs)
                         

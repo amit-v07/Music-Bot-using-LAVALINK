@@ -1,8 +1,11 @@
 ## Current Position
-- **Phase**: 2
-- **Task**: Phase 1 complete — ready to execute Phase 2
-- **Status**: Ready to execute Phase 2
+- **Phase**: All complete ✓
+- **Status**: All 3 phases executed
+
+## Completed
+- Phase 1: Resilience (node reconnect, inactive player, error handler, command guards)
+- Phase 2: Deployment (Docker full-stack, .env.example, start.ps1)
+- Phase 3: UI correctness (stop cleanup, FakeCtx guard)
 
 ## Next Steps
-1. /execute 2 — deployment polish (Docker full-stack, .env.example, start.ps1)
-2. /execute 3 — UI & player correctness
+Run `/verify 1` to validate Phase 1 with empirical checks.

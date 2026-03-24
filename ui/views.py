@@ -152,6 +152,7 @@ class NowPlayingView(ui.View):
             await interaction.response.defer(ephemeral=True)
             vc.queue.clear()
             await vc.disconnect()
+            await ui_manager.cleanup_all_messages(interaction.guild_id)
             reply = await ai_brain.get_response("stop", {"user": interaction.user.display_name})
             await interaction.followup.send(f"⏹️ {reply}", ephemeral=True)
         else:

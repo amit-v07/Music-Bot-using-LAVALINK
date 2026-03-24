@@ -12,6 +12,17 @@ services:
     networks:
       - lavalink_network
 
+  bot:
+    build: .
+    container_name: music_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - lavalink
+    networks:
+      - lavalink_network
+
 networks:
   lavalink_network:
     driver: bridge
