@@ -24,6 +24,8 @@ class LavalinkBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.voice_states = True # Explicitly ensure voice states are tracked
+        intents.guilds = True       # Explicitly ensure guilds are tracked
         
         super().__init__(
             command_prefix='-', 
