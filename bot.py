@@ -1,9 +1,10 @@
 import asyncio
+import ctypes.util
+import logging
+
 import discord
 from discord.ext import commands
 import wavelink
-
-import logging
 from config import config
 from utils.ai_brain import ai_brain
 from ui.views import TrackEventUIContext, ui_manager
@@ -19,6 +20,37 @@ LAVALINK_HOST = config.lavalink_host
 LAVALINK_PORT = config.lavalink_port
 OWNER_ID = config.owner_id
 
+
+def ensure_discord_opus() -> bool:
+    """Load system libopus for discord.py voice (required on Linux Docker)."""
+    if discord.opus.is_loaded():
+        return True
+    candidates = []
+    found = ctypes.util.find_library("opus")
+    if found:
+        candidates.append(found)
+    candidates.extend(
+        (
+            "libopus.so.0",
+            "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+            "/usr/lib/aarch64-linux-gnu/libopus.so.0",
+            "/usr/lib/libopus.so.0",
+        )
+    )
+    for path in candidates:
+        if not path:
+            continue
+        try:
+            discord.opus.load_opus(path)
+            if discord.opus.is_loaded():
+                logger.info("discord.opus loaded from %s", path)
+                return True
+        except (OSError, AttributeError, TypeError) as e:
+            logger.debug("Opus load failed for %r: %s", path, e)
+            continue
+    return False
+
+
 class LavalinkBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -33,6 +65,11 @@ class LavalinkBot(commands.Bot):
         )
 
     async def setup_hook(self):
+        if not ensure_discord_opus():
+            logger.error(
+                "libopus not found — install `libopus0` in the bot image and rebuild. "
+                "Voice may connect but stay silent."
+            )
         logger.info("Setting up Wavelink Node...")
         self._nodes = [wavelink.Node(
             uri=f"http://{config.lavalink_host}:{config.lavalink_port}",
@@ -129,11 +166,13 @@ async def play(ctx: commands.Context, *, search: str):
     else:
         vc: wavelink.Player = ctx.voice_client
 
-    if not discord.opus.is_loaded():
-        logger.error(
-            "discord.opus not loaded — bot Docker image must include libopus0; "
-            "voice channel may connect but audio will not encode."
+    if not ensure_discord_opus():
+        logger.error("play: libopus still not loaded after voice connect.")
+        await ctx.send(
+            "⚠️ Opus codec is missing in this container. **Redeploy** the bot so the image "
+            "includes `libopus0` (see Dockerfile). Until then you will not hear audio."
         )
+        return
 
     tracks: wavelink.Search = await wavelink.Playable.search(search)
     
