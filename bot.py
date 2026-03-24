@@ -117,20 +117,26 @@ async def play(ctx: commands.Context, *, search: str):
         return
         
     if isinstance(tracks, wavelink.Playlist):
-        track = tracks[0]
+        first_track = tracks[0]
         await vc.queue.put_wait(tracks)
         
         reply = await ai_brain.get_response("play", {"user": ctx.author.display_name, "song": tracks.name})
         await ctx.send(f"🎵 {reply} (Added playlist **{tracks.name}** with {len(tracks)} tracks)")
     else:
-        track = tracks[0]
-        vc.queue.put(track)
+        first_track = tracks[0]
+        vc.queue.put(first_track)
         
-        reply = await ai_brain.get_response("play", {"user": ctx.author.display_name, "song": track.title})
+        reply = await ai_brain.get_response("play", {"user": ctx.author.display_name, "song": first_track.title})
         await ctx.send(f"🎵 {reply}")
         
-    if not vc.playing:
-        await vc.play(vc.queue.get())
+    try:
+        if not vc.playing and not vc.paused:
+            # Avoid queue edge-cases on first play after node reconnects.
+            await vc.play(first_track)
+            logger.info("Started track '%s' in guild %s", first_track.title, ctx.guild.id)
+    except Exception as e:
+        logger.error("Failed to start playback for '%s': %s", first_track.title, e, exc_info=e)
+        await ctx.send("⚠️ Gaana load hua but play start nahi hua. Ek baar `-skip` ya `-play` phir try karo.")
     
     await ui_manager.update_all_ui(ctx)
 
@@ -376,6 +382,30 @@ async def on_track_end(payload: wavelink.TrackEndEventPayload):
     
     # Inactive player cleanup is now handled by on_wavelink_inactive_player via inactive_timeout
     # No manual disconnect needed here
+
+@bot.listen('on_wavelink_track_exception')
+async def on_track_exception(payload: wavelink.TrackExceptionEventPayload):
+    vc: wavelink.Player = payload.player
+    guild_id = vc.guild.id if vc and vc.guild else "unknown"
+    track_title = payload.track.title if payload.track else "unknown"
+    logger.error(
+        "Track exception in guild %s for '%s': %s",
+        guild_id,
+        track_title,
+        payload.exception,
+    )
+
+@bot.listen('on_wavelink_track_stuck')
+async def on_track_stuck(payload: wavelink.TrackStuckEventPayload):
+    vc: wavelink.Player = payload.player
+    guild_id = vc.guild.id if vc and vc.guild else "unknown"
+    track_title = payload.track.title if payload.track else "unknown"
+    logger.warning(
+        "Track stuck in guild %s for '%s' (threshold_ms=%s)",
+        guild_id,
+        track_title,
+        payload.threshold,
+    )
 
 @bot.listen('on_wavelink_track_start')
 async def on_track_start(payload: wavelink.TrackStartEventPayload):
