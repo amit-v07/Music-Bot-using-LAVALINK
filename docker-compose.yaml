@@ -18,12 +18,8 @@ services:
       # Plugin Configuration (Updated for YouTube script fixes)
       - LAVALINK_PLUGINS_0_DEPENDENCY=dev.lavalink.youtube:youtube-plugin:1.18.0
       - LAVALINK_PLUGINS_0_REPOSITORY=https://maven.lavalink.dev/releases
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:2333/version >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 120s
+    # No HEALTHCHECK here: Coolify/runtime images may omit curl/wget; first-boot plugin
+    # download can exceed typical start_period. Wavelink retries until Lavalink listens.
 
   bot:
     build: .
@@ -36,5 +32,4 @@ services:
       - LAVALINK_PORT=2333
       - LAVALINK_PASSWORD=hope_lost
     depends_on:
-      lavalink:
-        condition: service_healthy
+      - lavalink
