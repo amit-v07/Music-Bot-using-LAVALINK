@@ -47,7 +47,7 @@ class LavalinkBot(commands.Bot):
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         logger.info(f"Lavalink Node connected successfully! Node ID: {payload.node.identifier}")
 
-    async def on_wavelink_node_closed(self, payload: wavelink.NodeClosedEventPayload):
+    async def on_wavelink_node_closed(self, payload):
         logger.warning(f"Lavalink Node disconnected: {payload.node.identifier}. Attempting reconnect...")
         for attempt, delay in enumerate([5, 15], start=1):
             await asyncio.sleep(delay)
