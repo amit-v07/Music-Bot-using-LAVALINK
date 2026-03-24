@@ -6,7 +6,7 @@ import wavelink
 import logging
 from config import config
 from utils.ai_brain import ai_brain
-from ui.views import ui_manager
+from ui.views import TrackEventUIContext, ui_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -389,14 +389,7 @@ async def on_track_start(payload: wavelink.TrackStartEventPayload):
         if vc.guild.id in ui_manager.ui_messages:
             msg = ui_manager.ui_messages[vc.guild.id].get('now_playing') or ui_manager.ui_messages[vc.guild.id].get('queue')
             if msg:
-                # Provide a FakeCtx so ui_manager can recreate the paired messages in the same channel
-                class FakeCtx:
-                    guild = vc.guild
-                    voice_client = vc
-                    async def send(self, *args, **kwargs):
-                        return await msg.channel.send(*args, **kwargs)
-                        
-                await ui_manager.update_all_ui(FakeCtx())
+                await ui_manager.update_all_ui(TrackEventUIContext(vc, msg))
     except Exception as e:
         logger.error(f"Error handling track start UI update: {e}")
 
