@@ -19,6 +19,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "hope_lost")
 LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
 LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
+OWNER_ID = os.getenv("OWNER_ID") # Admin to notify on failures
 
 class LavalinkBot(commands.Bot):
     def __init__(self):
@@ -56,8 +57,19 @@ class LavalinkBot(commands.Bot):
             try:
                 await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
                 logger.info(f"Lavalink reconnected on attempt {attempt}.")
+                
+                if OWNER_ID:
+                    try:
+                        owner = await self.fetch_user(int(OWNER_ID))
+                        await owner.send(f"✅ **Lavalink Reconnected** (Attempt {attempt})")
+                    except Exception: pass
                 return
             except Exception as e:
+                if attempt == 2 and OWNER_ID: # Final attempt failed
+                    try:
+                        owner = await self.fetch_user(int(OWNER_ID))
+                        await owner.send(f"⚠️ **Lavalink Critical Failure**: Could not reconnect after 2 attempts.")
+                    except Exception: pass
                 logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
         logger.error("All Lavalink reconnect attempts failed. Manual restart may be needed.")
 
@@ -382,6 +394,33 @@ async def on_track_start(payload: wavelink.TrackStartEventPayload):
                 await ui_manager.update_all_ui(FakeCtx())
     except Exception as e:
         logger.error(f"Error handling track start UI update: {e}")
+
+@bot.command()
+async def status(ctx):
+    """Check the health and versions of the music stack."""
+    embed = discord.Embed(title="🎵 Music Stack Status", color=discord.Color.blue())
+    
+    # Bot / Wavelink Info
+    embed.add_field(name="Bot Status", value="✅ Online", inline=True)
+    embed.add_field(name="Wavelink Version", value=wavelink.__version__, inline=True)
+    
+    # Node Info
+    nodes = wavelink.Pool.nodes
+    if not nodes:
+        embed.add_field(name="Lavalink Node", value="❌ No Nodes in Pool", inline=False)
+    else:
+        # Get the first node
+        node = list(nodes.values())[0] if isinstance(nodes, dict) else nodes[0]
+        status_text = "✅ Connected" if node.status == wavelink.NodeStatus.CONNECTED else "❌ Disconnected"
+        embed.add_field(name="Lavalink Node", value=status_text, inline=True)
+        embed.add_field(name="Players", value=str(len(node.players)), inline=True)
+        
+    # Version Pinning info (Static from our config)
+    embed.add_field(name="Pinned Lavalink", value="4.0.8", inline=True)
+    embed.add_field(name="Pinned YT Plugin", value="1.18.2", inline=True)
+    
+    embed.set_footer(text=f"Admin Alerts: {'Enabled' if OWNER_ID else 'Disabled'}")
+    await ctx.send(embed=embed)
 
 if __name__ == "__main__":
     if not TOKEN:

@@ -12,4 +12,8 @@ Ensure the Lavalink Docker setup, bot startup, and environment config are correc
 Ensure the interactive now-playing panel and queue view always reflect live state correctly across edge cases (track end, autoplay, skip, disconnect).
 
 ### Phase 4: Coolify Home Server Deployment
-Deploy the entire Music Bot stack (Lavalink + Bot) to a home server running Coolify. Configure persistent environment variables, volumes, health checks, and ensure the bot auto-restarts on crash or server reboot.
+**Status**: ✅ Complete
+
+### Phase 5: Maintenance & Future-Proofing
+**Status**: 🏗️ In Progress
+Pin specific, tested versions across the entire stack (Python, Wavelink, Lavalink, Plugins) to prevent "surprise" breaking updates. Implement a simple "Admin Notification" system if the Node disconnects or errors.
