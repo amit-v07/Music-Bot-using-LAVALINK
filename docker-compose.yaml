@@ -16,7 +16,7 @@ services:
       - LAVALINK_SERVER_SOURCES_HTTP=true
       - LAVALINK_SERVER_SOURCES_LOCAL=false
       # Plugin Configuration (Updated for YouTube script fixes)
-      - LAVALINK_PLUGINS_0_DEPENDENCY=dev.lavalink.youtube:youtube-plugin:1.18.2
+      - LAVALINK_PLUGINS_0_DEPENDENCY=dev.lavalink.youtube:youtube-plugin:1.18.0
       - LAVALINK_PLUGINS_0_REPOSITORY=https://maven.lavalink.dev/releases
 
   bot:
