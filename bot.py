@@ -7,6 +7,7 @@ import logging
 from config import config
 from utils.ai_brain import ai_brain
 from ui.views import TrackEventUIContext, ui_manager
+from wavelink.exceptions import ChannelTimeoutException
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -105,8 +106,26 @@ async def play(ctx: commands.Context, *, search: str):
         return
     
     if not ctx.voice_client:
-        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-        vc.inactive_timeout = 60
+        try:
+            vc: wavelink.Player = await ctx.author.voice.channel.connect(
+                cls=wavelink.Player,
+                timeout=config.voice_connect_timeout,
+                reconnect=True,
+            )
+            vc.inactive_timeout = 60
+        except ChannelTimeoutException:
+            # This is Discord voice channel join failing (not Lavalink).
+            # In production this is usually permission issues or outbound UDP restrictions.
+            logger.error(
+                "Voice connect timed out in guild %s channel '%s'",
+                ctx.guild.id if ctx.guild else "unknown",
+                getattr(ctx.author.voice.channel, "name", "unknown"),
+                exc_info=True,
+            )
+            return await ctx.send(
+                "❌ Voice channel join timeout. Check: bot has `Connect/Speak` permission "
+                "and Coolify/server allows outbound UDP to Discord voice servers."
+            )
     else:
         vc: wavelink.Player = ctx.voice_client
 

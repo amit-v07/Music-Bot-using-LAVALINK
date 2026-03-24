@@ -14,6 +14,9 @@ class Config:
     lavalink_port = int(os.getenv("LAVALINK_PORT", "2333"))
     owner_id = os.getenv("OWNER_ID")
 
+    # discord.py voice-channel join timeout (default in library is often 30s)
+    voice_connect_timeout = int(os.getenv("VOICE_CONNECT_TIMEOUT", "60"))
+
     # Lavalink restarts — see bot.on_wavelink_node_closed; align with DEPLOY.md / wavelink upgrades
     lavalink_reconnect_max_attempts = 8
     lavalink_reconnect_base_delay_s = 4.0
