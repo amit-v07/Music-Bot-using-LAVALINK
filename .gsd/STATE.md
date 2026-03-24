@@ -1,6 +1,7 @@
 ## Current Position
-- **Phase**: All complete ✓
-- **Status**: All 3 phases executed
+- **Phase**: 4
+- **Task**: Coolify deployment
+- **Status**: Ready to execute Phase 4
 
 ## Completed
 - Phase 1: Resilience (node reconnect, inactive player, error handler, command guards)
@@ -8,4 +9,4 @@
 - Phase 3: UI correctness (stop cleanup, FakeCtx guard)
 
 ## Next Steps
-Run `/verify 1` to validate Phase 1 with empirical checks.
+1. /execute 4 — deploy to Coolify (follow dashboard steps in 1-PLAN.md)
