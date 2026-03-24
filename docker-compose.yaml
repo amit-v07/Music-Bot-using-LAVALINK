@@ -10,13 +10,13 @@ services:
       - _JAVA_OPTIONS=-Xmx512m
       - SERVER_PORT=2333
       - LAVALINK_SERVER_PASSWORD=hope_lost
-      # Disable deprecated YouTube (this removes the warning)
+      # Disable deprecated YouTube
       - LAVALINK_SERVER_SOURCES_YOUTUBE=false
       # Enable external plugins
       - LAVALINK_SERVER_SOURCES_HTTP=true
       - LAVALINK_SERVER_SOURCES_LOCAL=false
-      # Plugin Configuration (since we don't use application.yml anymore)
-      - LAVALINK_PLUGINS_0_DEPENDENCY=dev.lavalink.youtube:youtube-plugin:1.11.5
+      # Plugin Configuration (Updated for YouTube script fixes)
+      - LAVALINK_PLUGINS_0_DEPENDENCY=dev.lavalink.youtube:youtube-plugin:1.18.2
       - LAVALINK_PLUGINS_0_REPOSITORY=https://maven.lavalink.dev/releases
 
   bot:
