@@ -33,13 +33,13 @@ class LavalinkBot(commands.Bot):
 
     async def setup_hook(self):
         logger.info("Setting up Wavelink Node...")
-        nodes = [wavelink.Node(
+        self._nodes = [wavelink.Node(
             uri=f"http://{LAVALINK_HOST}:{LAVALINK_PORT}",
             password=LAVALINK_PASSWORD
         )]
         
         # Connect to Lavalink Server
-        await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
+        await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
 
     async def on_ready(self):
         logger.info(f"Bot connected as {self.user} (ID: {self.user.id})")
@@ -47,7 +47,34 @@ class LavalinkBot(commands.Bot):
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         logger.info(f"Lavalink Node connected successfully! Node ID: {payload.node.identifier}")
 
+    async def on_wavelink_node_closed(self, payload: wavelink.NodeClosedEventPayload):
+        logger.warning(f"Lavalink Node disconnected: {payload.node.identifier}. Attempting reconnect...")
+        for attempt, delay in enumerate([5, 15], start=1):
+            await asyncio.sleep(delay)
+            try:
+                await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
+                logger.info(f"Lavalink reconnected on attempt {attempt}.")
+                return
+            except Exception as e:
+                logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
+        logger.error("All Lavalink reconnect attempts failed. Manual restart may be needed.")
+
 bot = LavalinkBot()
+
+# --- Global Error Handler ---
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Bhai, kuch toh argument do! `{error.param.name}` missing hai.")
+        return
+    if isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Galat argument diya yaar. Sahi se type karo!")
+        return
+    logger.error(f"Command error in '{ctx.command}': {error}", exc_info=error)
+    await ctx.send("❌ Arre yaar, kuch gadbad ho gayi! Thodi der mein phir try karo.")
 
 # --- Music Commands ---
 
@@ -59,7 +86,7 @@ async def play(ctx: commands.Context, *, search: str):
         return
     
     if not ctx.voice_client:
-        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player, inactive_timeout=60)
     else:
         vc: wavelink.Player = ctx.voice_client
 
@@ -106,8 +133,10 @@ async def skip(ctx: commands.Context):
 @bot.command()
 async def pause(ctx: commands.Context):
     """Pause the current song."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Kuch baj hi nahi raha bhai!")
     vc: wavelink.Player = ctx.voice_client
-    if vc and not vc.paused:
+    if not vc.paused:
         await vc.pause(True)
         reply = await ai_brain.get_response("pause", {"user": ctx.author.display_name})
         await ctx.send(f"⏸️ {reply}")
@@ -116,8 +145,10 @@ async def pause(ctx: commands.Context):
 @bot.command(aliases=['start'])
 async def resume(ctx: commands.Context):
     """Resume the current song."""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Kuch baj hi nahi raha bhai!")
     vc: wavelink.Player = ctx.voice_client
-    if vc and vc.paused:
+    if vc.paused:
         await vc.pause(False)
         reply = await ai_brain.get_response("resume", {"user": ctx.author.display_name})
         await ctx.send(f"▶️ {reply}")
@@ -274,8 +305,11 @@ async def jump(ctx: commands.Context, index: int):
     
     if 1 <= index <= len(vc.queue):
         # We need to drop all songs before the target index
-        for _ in range(index - 1):
-            del vc.queue[0]
+        try:
+            for _ in range(index - 1):
+                del vc.queue[0]
+        except IndexError:
+            pass  # Queue may have shrunk mid-loop, proceed with skip
             
         await vc.skip(force=True)
         reply = await ai_brain.get_response("jump", {"user": ctx.author.display_name})
@@ -301,20 +335,27 @@ async def volume(ctx: commands.Context, vol: int = None):
         await ctx.send("❌ Volume 0 se 1000 ke beech mein hona chahiye aukaat ke hisaab se.")
 
 # --- Event Listeners for Player ---
+@bot.listen('on_wavelink_inactive_player')
+async def on_inactive_player(payload: wavelink.InactivePlayerEventPayload):
+    """Fires when the player has been inactive (no tracks) for inactive_timeout seconds."""
+    vc: wavelink.Player = payload.player
+    if vc and vc.connected:
+        try:
+            await ui_manager.cleanup_all_messages(vc.guild.id)
+            await vc.disconnect()
+            logger.info(f"Disconnected inactive player from guild {vc.guild.id}")
+        except Exception as e:
+            logger.error(f"Error disconnecting inactive player: {e}")
+
 @bot.listen('on_wavelink_track_end')
 async def on_track_end(payload: wavelink.TrackEndEventPayload):
     vc: wavelink.Player = payload.player
     
     if not vc or not vc.connected:
         return
-        
-    if vc.queue.is_empty and getattr(vc, 'autoplay', wavelink.AutoPlayMode.disabled) == wavelink.AutoPlayMode.disabled:
-        reply = await ai_brain.get_response("queue_end", {})
-        
-        await asyncio.sleep(60)
-        if vc.queue.is_empty and vc.connected:
-            await ui_manager.cleanup_all_messages(vc.guild.id)
-            await vc.disconnect()
+    
+    # Inactive player cleanup is now handled by on_wavelink_inactive_player via inactive_timeout
+    # No manual disconnect needed here
 
 @bot.listen('on_wavelink_track_start')
 async def on_track_start(payload: wavelink.TrackStartEventPayload):
