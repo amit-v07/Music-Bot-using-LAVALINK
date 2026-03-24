@@ -1,0 +1,28 @@
+# Secrets and local env (never bake into image layers)
+.env
+.env.*
+!.env.example
+
+# VCS / editor / agent cruft
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+
+# Python caches & venvs
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.mypy_cache
+.ruff_cache
+venv
+.venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local planning / docs not needed at runtime (optional shrink)
+.gsd

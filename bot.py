@@ -1,25 +1,22 @@
 import asyncio
-import os
 import discord
 from discord.ext import commands
 import wavelink
-from dotenv import load_dotenv
 
 import logging
+from config import config
 from utils.ai_brain import ai_brain
-from ui.views import ui_manager
+from ui.views import TrackEventUIContext, ui_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('LavalinkBot')
 
-# Load environment variables
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "hope_lost")
-LAVALINK_HOST = os.getenv("LAVALINK_HOST", "lavalink")
-LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 2333))
-OWNER_ID = os.getenv("OWNER_ID") # Admin to notify on failures
+TOKEN = config.discord_token
+LAVALINK_PASSWORD = config.lavalink_password
+LAVALINK_HOST = config.lavalink_host
+LAVALINK_PORT = config.lavalink_port
+OWNER_ID = config.owner_id
 
 class LavalinkBot(commands.Bot):
     def __init__(self):
@@ -37,8 +34,8 @@ class LavalinkBot(commands.Bot):
     async def setup_hook(self):
         logger.info("Setting up Wavelink Node...")
         self._nodes = [wavelink.Node(
-            uri=f"http://{LAVALINK_HOST}:{LAVALINK_PORT}",
-            password=LAVALINK_PASSWORD
+            uri=f"http://{config.lavalink_host}:{config.lavalink_port}",
+            password=config.lavalink_password,
         )]
         
         # Connect to Lavalink Server
@@ -51,8 +48,13 @@ class LavalinkBot(commands.Bot):
         logger.info(f"Lavalink Node connected successfully! Node ID: {payload.node.identifier}")
 
     async def on_wavelink_node_closed(self, payload):
+        """Supplement Wavelink's own websocket retries for long Lavalink cold starts (Docker/Coolify)."""
         logger.warning(f"Lavalink Node disconnected: {payload.node.identifier}. Attempting reconnect...")
-        for attempt, delay in enumerate([5, 15], start=1):
+        for attempt in range(1, config.lavalink_reconnect_max_attempts + 1):
+            delay = min(
+                config.lavalink_reconnect_base_delay_s * (2 ** (attempt - 1)),
+                config.lavalink_reconnect_max_delay_s,
+            )
             await asyncio.sleep(delay)
             try:
                 await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
@@ -65,12 +67,15 @@ class LavalinkBot(commands.Bot):
                     except Exception: pass
                 return
             except Exception as e:
-                if attempt == 2 and OWNER_ID: # Final attempt failed
+                logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
+                if attempt == config.lavalink_reconnect_max_attempts and OWNER_ID:
                     try:
                         owner = await self.fetch_user(int(OWNER_ID))
-                        await owner.send(f"⚠️ **Lavalink Critical Failure**: Could not reconnect after 2 attempts.")
+                        await owner.send(
+                            f"⚠️ **Lavalink Critical Failure**: Could not reconnect after "
+                            f"{config.lavalink_reconnect_max_attempts} attempts."
+                        )
                     except Exception: pass
-                logger.error(f"Lavalink reconnect attempt {attempt} failed: {e}")
         logger.error("All Lavalink reconnect attempts failed. Manual restart may be needed.")
 
 bot = LavalinkBot()
@@ -384,14 +389,7 @@ async def on_track_start(payload: wavelink.TrackStartEventPayload):
         if vc.guild.id in ui_manager.ui_messages:
             msg = ui_manager.ui_messages[vc.guild.id].get('now_playing') or ui_manager.ui_messages[vc.guild.id].get('queue')
             if msg:
-                # Provide a FakeCtx so ui_manager can recreate the paired messages in the same channel
-                class FakeCtx:
-                    guild = vc.guild
-                    voice_client = vc
-                    async def send(self, *args, **kwargs):
-                        return await msg.channel.send(*args, **kwargs)
-                        
-                await ui_manager.update_all_ui(FakeCtx())
+                await ui_manager.update_all_ui(TrackEventUIContext(vc, msg))
     except Exception as e:
         logger.error(f"Error handling track start UI update: {e}")
 
@@ -416,8 +414,8 @@ async def status(ctx):
         embed.add_field(name="Players", value=str(len(node.players)), inline=True)
         
     # Version Pinning info (Static from our config)
-    embed.add_field(name="Pinned Lavalink", value="4.0.8", inline=True)
-    embed.add_field(name="Pinned YT Plugin", value="1.18.2", inline=True)
+    embed.add_field(name="Pinned Lavalink", value=config.pinned_lavalink_version, inline=True)
+    embed.add_field(name="Pinned YT Plugin", value=config.pinned_youtube_plugin, inline=True)
     
     embed.set_footer(text=f"Admin Alerts: {'Enabled' if OWNER_ID else 'Disabled'}")
     await ctx.send(embed=embed)

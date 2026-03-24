@@ -435,4 +435,21 @@ class UIManager:
                 await self._cleanup_message(guild_id, message_type)
             self.ui_messages.pop(guild_id, None)
 
+
+class TrackEventUIContext:
+    """
+    Stand-in for commands.Context when refreshing UI from wavelink player events:
+    ui_manager needs guild, voice_client, and send() targeting the existing UI channel.
+    """
+    __slots__ = ("guild", "voice_client", "_channel")
+
+    def __init__(self, player: wavelink.Player, anchor_message: discord.Message):
+        self.guild = player.guild
+        self.voice_client = player
+        self._channel = anchor_message.channel
+
+    async def send(self, *args, **kwargs):
+        return await self._channel.send(*args, **kwargs)
+
+
 ui_manager = UIManager()
