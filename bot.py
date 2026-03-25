@@ -1,5 +1,4 @@
 import asyncio
-import ctypes.util
 import logging
 
 import discord
@@ -11,7 +10,7 @@ from ui.views import TrackEventUIContext, ui_manager
 from wavelink.exceptions import ChannelTimeoutException
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger('LavalinkBot')
 
 TOKEN = config.discord_token
@@ -19,36 +18,6 @@ LAVALINK_PASSWORD = config.lavalink_password
 LAVALINK_HOST = config.lavalink_host
 LAVALINK_PORT = config.lavalink_port
 OWNER_ID = config.owner_id
-
-
-def ensure_discord_opus() -> bool:
-    """Load system libopus for discord.py voice (required on Linux Docker)."""
-    if discord.opus.is_loaded():
-        return True
-    candidates = []
-    found = ctypes.util.find_library("opus")
-    if found:
-        candidates.append(found)
-    candidates.extend(
-        (
-            "libopus.so.0",
-            "/usr/lib/x86_64-linux-gnu/libopus.so.0",
-            "/usr/lib/aarch64-linux-gnu/libopus.so.0",
-            "/usr/lib/libopus.so.0",
-        )
-    )
-    for path in candidates:
-        if not path:
-            continue
-        try:
-            discord.opus.load_opus(path)
-            if discord.opus.is_loaded():
-                logger.info("discord.opus loaded from %s", path)
-                return True
-        except (OSError, AttributeError, TypeError) as e:
-            logger.debug("Opus load failed for %r: %s", path, e)
-            continue
-    return False
 
 
 class LavalinkBot(commands.Bot):
@@ -65,19 +34,20 @@ class LavalinkBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        if not ensure_discord_opus():
-            logger.error(
-                "libopus not found — install `libopus0` in the bot image and rebuild. "
-                "Voice may connect but stay silent."
-            )
-        logger.info("Setting up Wavelink Node...")
+        logger.info("Setting up Wavelink Node on %s:%s...", config.lavalink_host, config.lavalink_port)
         self._nodes = [wavelink.Node(
             uri=f"http://{config.lavalink_host}:{config.lavalink_port}",
             password=config.lavalink_password,
         )]
         
         # Connect to Lavalink Server
-        await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
+        try:
+            await wavelink.Pool.connect(nodes=self._nodes, client=self, cache_capacity=100)
+            logger.info("Wavelink Pool connection attempt finished.")
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to connect to Lavalink Pool: {e}")
+            if "name not known" in str(e).lower():
+                logger.error("HINT: 'lavalink' hostname not found. Are you running in Docker with the right service name?")
 
     async def on_ready(self):
         logger.info(f"Bot connected as {self.user} (ID: {self.user.id})")
@@ -165,14 +135,6 @@ async def play(ctx: commands.Context, *, search: str):
             )
     else:
         vc: wavelink.Player = ctx.voice_client
-
-    if not ensure_discord_opus():
-        logger.error("play: libopus still not loaded after voice connect.")
-        await ctx.send(
-            "⚠️ Opus codec is missing in this container. **Redeploy** the bot so the image "
-            "includes `libopus0` (see Dockerfile). Until then you will not hear audio."
-        )
-        return
 
     tracks: wavelink.Search = await wavelink.Playable.search(search)
     
